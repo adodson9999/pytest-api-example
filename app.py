@@ -10,6 +10,10 @@ import uuid
 from graphql_api import init_graphql
 from dataclasses import dataclass
 from typing import Callable, Any, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+from flask import request
+from flask_restx import Resource
 
 
 app = Flask(__name__)
@@ -182,10 +186,6 @@ def register_list_resource(ns, api, *, items, model, label, id_param=None, share
         def get(self, **kwargs):
             item_id = kwargs[id_param]
             return self.get_one(item_id)
-
-
-
-
 
 # Pets
 register_list_resource(
@@ -452,6 +452,277 @@ def health_check():
         "service": "pet-store-api",
         "version": "1.0.0"
     }), 200
+
+
+
+
+
+# Reuse your existing SharedTarget + _generate_next_id if you want shared behavior in bulk creates
+# (I'm not changing your SharedTarget implementation here)
+
+def _existing_ids(items: list[dict], id_field: str = "id") -> set[int]:
+    return {
+        x.get(id_field)
+        for x in items
+        if isinstance(x.get(id_field), int)
+    }
+
+def _next_id(items: list[dict], id_field: str = "id") -> int:
+    existing = _existing_ids(items, id_field)
+    return next(i for i in range(1, len(existing) + 2) if i not in existing)
+
+def _matches_search(item: dict, q: str, fields: list[str]) -> bool:
+    ql = q.lower()
+    for f in fields:
+        v = item.get(f)
+        if v is None:
+            continue
+        if ql in str(v).lower():
+            return True
+    return False
+
+def register_common_extras(
+    ns,
+    api,
+    *,
+    items: list[dict],
+    model,
+    label: str,
+    id_param: str,
+    id_field: str = "id",
+    searchable_fields: Optional[list[str]] = None,
+    filterable_fields: Optional[list[str]] = None,
+):
+    """
+    Adds standardized "extra" endpoints to a resource namespace.
+    This is the scalability piece: one function, many resources.
+
+    Endpoints added:
+      GET    /count
+      GET    /ids
+      GET    /exists/<int:id>
+      GET    /search?q=...
+      GET    /filter?... (exact match using query params)
+      POST   /bulk
+      POST   /bulk/delete
+      PATCH  /bulk/patch
+    """
+    searchable_fields = searchable_fields or []
+    filterable_fields = filterable_fields or []
+
+    # ---------- COUNT ----------
+    @ns.route("/count")
+    class _Count(Resource):
+        @ns.doc(f"{label.lower()}_count")
+        def get(self):
+            return {"count": len(items)}, 200
+
+    # ---------- IDS ----------
+    @ns.route("/ids")
+    class _Ids(Resource):
+        @ns.doc(f"{label.lower()}_ids")
+        def get(self):
+            ids = [x.get(id_field) for x in items if isinstance(x.get(id_field), int)]
+            return {"ids": ids}, 200
+
+    # ---------- EXISTS ----------
+    @ns.route(f"/exists/<int:{id_param}>")
+    class _Exists(Resource):
+        @ns.doc(f"{label.lower()}_exists")
+        def get(self, **kwargs):
+            item_id = kwargs[id_param]
+            exists = any(x.get(id_field) == item_id for x in items)
+            return {"exists": exists, id_field: item_id}, 200
+
+    # ---------- SEARCH ----------
+    @ns.route("/search")
+    class _Search(Resource):
+        @ns.doc(f"{label.lower()}_search")
+        def get(self):
+            q = (request.args.get("q") or "").strip()
+            if not q:
+                api.abort(400, "Missing required query param: q")
+            if not searchable_fields:
+                api.abort(400, f"{label} search is not configured (no searchable_fields)")
+            results = [x for x in items if _matches_search(x, q, searchable_fields)]
+            return results, 200
+
+    # ---------- FILTER (exact match from querystring) ----------
+    @ns.route("/filter")
+    class _Filter(Resource):
+        @ns.doc(f"{label.lower()}_filter")
+        def get(self):
+            if not filterable_fields:
+                api.abort(400, f"{label} filter is not configured (no filterable_fields)")
+
+            params = dict(request.args)
+            allowed = {k: v for k, v in params.items() if k in filterable_fields}
+            if not allowed:
+                api.abort(400, f"Provide at least one filter param from: {', '.join(filterable_fields)}")
+
+            def ok(item: dict) -> bool:
+                for k, v in allowed.items():
+                    if str(item.get(k)) != str(v):
+                        return False
+                return True
+
+            return [x for x in items if ok(x)], 200
+
+    # ---------- BULK CREATE ----------
+    @ns.route("/bulk")
+    class _BulkCreate(Resource):
+        @ns.doc(f"{label.lower()}_bulk_create")
+        @ns.expect([model])
+        def post(self):
+            payload = api.payload
+            if not isinstance(payload, list):
+                api.abort(400, "Expected a JSON array of objects")
+
+            created = []
+            existing = _existing_ids(items, id_field)
+
+            for obj in payload:
+                if not isinstance(obj, dict):
+                    api.abort(400, "Each item in array must be an object")
+
+                incoming_id = obj.get(id_field)
+                if incoming_id is None:
+                    obj[id_field] = next(i for i in range(1, len(existing) + 2) if i not in existing)
+                else:
+                    if not isinstance(incoming_id, int):
+                        api.abort(400, f"{label} '{id_field}' must be an integer")
+                    if incoming_id in existing:
+                        api.abort(409, f"{label} with ID {incoming_id} already exists")
+
+                existing.add(obj[id_field])
+                items.append(obj)
+                created.append(obj)
+
+            return {"created": created, "count": len(created)}, 201
+
+    # ---------- BULK DELETE ----------
+    @ns.route("/bulk/delete")
+    class _BulkDelete(Resource):
+        @ns.doc(f"{label.lower()}_bulk_delete")
+        def post(self):
+            payload = api.payload or {}
+            ids = payload.get("ids")
+            if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+                api.abort(400, "Body must be: { 'ids': [int, int, ...] }")
+
+            before = len(items)
+            items[:] = [x for x in items if x.get(id_field) not in set(ids)]
+            deleted = before - len(items)
+            return {"deleted": deleted, "requested": len(ids)}, 200
+
+    # ---------- BULK PATCH ----------
+    @ns.route("/bulk/patch")
+    class _BulkPatch(Resource):
+        @ns.doc(f"{label.lower()}_bulk_patch")
+        def patch(self):
+            """
+            Body:
+              {
+                "ids": [1,2,3],
+                "set": {"status": "available"}
+              }
+            """
+            payload = api.payload or {}
+            ids = payload.get("ids")
+            changes = payload.get("set")
+
+            if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+                api.abort(400, "Body must include 'ids': [int, ...]")
+            if not isinstance(changes, dict) or not changes:
+                api.abort(400, "Body must include 'set': { ... }")
+
+            ids_set = set(ids)
+            updated = 0
+
+            for obj in items:
+                if obj.get(id_field) in ids_set:
+                    obj.update(changes)
+                    updated += 1
+
+            return {"updated": updated, "requested": len(ids)}, 200
+
+
+# PETS extras
+register_common_extras(
+    pet_ns, api,
+    items=pets,
+    model=models.pet_model,
+    label="Pet",
+    id_param="pet_id",
+    searchable_fields=["name", "type", "status"],
+    filterable_fields=["name", "type", "status", "order_id"],
+)
+
+# CUSTOMERS extras
+register_common_extras(
+    customer_ns, api,
+    items=customers,
+    model=models.customer_model,
+    label="Customer",
+    id_param="customer_id",
+    searchable_fields=["name", "email", "date"],
+    filterable_fields=["name", "email", "date", "purchase"],
+)
+
+# INVENTORY extras
+register_common_extras(
+    inventory_ns, api,
+    items=inventory,
+    model=models.inventory_model,
+    label="Inventory",
+    id_param="inventory_id",
+    searchable_fields=["pet_id"],
+    filterable_fields=["pet_id", "inventory"],
+)
+
+# VETS extras
+register_common_extras(
+    vet_ns, api,
+    items=vets,
+    model=models.vet_model,
+    label="Vet",
+    id_param="vet_id",
+    searchable_fields=["name", "contact_form"],
+    filterable_fields=["name", "contact_form", "contact_info"],
+)
+
+# TRAINERS extras
+register_common_extras(
+    trainer_ns, api,
+    items=trainers,
+    model=models.trainer_model,
+    label="Trainer",
+    id_param="trainer_id",
+    searchable_fields=["name", "contact_form"],
+    filterable_fields=["name", "contact_form", "contact_info"],
+)
+
+# VENDORS extras
+register_common_extras(
+    vendor_ns, api,
+    items=vendors,
+    model=models.vendor_model,
+    label="Vendor",
+    id_param="vendor_id",
+    searchable_fields=["name", "contact_form", "point_of_contact", "contact_info"],
+    filterable_fields=["name", "contact_form", "point_of_contact", "product"],
+)
+
+# EVENTS extras
+register_common_extras(
+    event_ns, api,
+    items=events,
+    model=models.events_model,
+    label="Event",
+    id_param="event_id",
+    searchable_fields=["name", "date"],
+    filterable_fields=["name", "date", "location"],
+)
 
 
 init_graphql(app, pets, orders, events, inventory, vendors, trainers, customers, vets)

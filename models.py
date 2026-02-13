@@ -23,7 +23,6 @@ class Models:
             'status': fields.String(description='The pet status', enum=PET_STATUS)
         })
 
-        
         self.customer_model = api.model('Customer', {
             'id': fields.Integer(description='The customer ID'),
             'name': fields.String(required=True, description='The customer name'),
