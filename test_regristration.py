@@ -326,21 +326,37 @@ def test_post_rejects_non_int_id_400(r):
 # -----------------------------
 @pytest.mark.parametrize("r", RESOURCES)
 def test_post_duplicate_id_409(r):
-    # Create first item with explicit id
-    payload1 = r["make_payload"]()
-    payload1["id"] = 999999  # arbitrary, but fixed for this test
-    resp1 = _create_item(r["base"], payload1)
-    assert resp1.status_code in (200, 201), f"{r['label']} create #1 failed. Body: {resp1.text}"
+    """
+    Verify:
+      1. First POST with explicit ID succeeds
+      2. Second POST with same ID returns 409
+    Uses a guaranteed-unique ID so it never collides with previous test data.
+    """
 
-    # Create second item with same id should 409
-    payload2 = r["make_payload"]()
-    payload2["id"] = 999999
-    resp2 = _create_item(r["base"], payload2)
-    assert resp2.status_code == 409, (
-        f"{r['label']} duplicate id should 409. Got {resp2.status_code}. Body: {resp2.text}"
+    # Generate a unique integer ID per test run
+    # uuid4 ensures it will never collide
+    unique_id = uuid.uuid4().int % 10_000_000_000  # large positive int
+
+    # ---- Create first item with explicit id ----
+    payload1 = r["make_payload"]()
+    payload1["id"] = unique_id
+
+    resp1 = _create_item(r["base"], payload1)
+
+    assert resp1.status_code in (200, 201), (
+        f"{r['label']} create #1 failed. "
+        f"Status: {resp1.status_code}. Body: {resp1.text}"
     )
 
+    # ---- Create second item with same id (should fail) ----
+    payload2 = r["make_payload"]()
+    payload2["id"] = unique_id
 
+    resp2 = _create_item(r["base"], payload2)
 
+    assert resp2.status_code == 409, (
+        f"{r['label']} duplicate id should 409. "
+        f"Got {resp2.status_code}. Body: {resp2.text}"
+    )
 
 
