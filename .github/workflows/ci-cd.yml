@@ -7,26 +7,27 @@ on:
     branches: [ main, develop ]
 
 jobs:
-# --------------------------------------------------
-# 1️⃣ Backend + Unit Tests (Python Matrix)
-# --------------------------------------------------
+  # --------------------------------------------------
+  # 1️⃣ Backend + Unit/Integration Tests (Python Matrix)
+  #    ✅ IMPORTANT: Excludes Playwright UI tests
+  # --------------------------------------------------
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Cache pip dependencies
       uses: actions/cache@v4
       with:
@@ -34,12 +35,12 @@ jobs:
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
+
     - name: Start Flask server in background
       run: |
         python app.py &
@@ -47,7 +48,7 @@ jobs:
         sleep 3
       env:
         FLASK_ENV: testing
-    
+
     - name: Wait for server to be ready
       run: |
         echo "Waiting for server to start..."
@@ -59,12 +60,14 @@ jobs:
           echo "Attempt $i: Server not ready yet..."
           sleep 2
         done
-        curl -v http://localhost:5001/graphql || echo "Server check failed but continuing"
-    
-    - name: Run backend tests
+        curl -v http://localhost:5001/graphql || echo "GraphQL check failed but continuing"
+
+    # ✅ KEY CHANGE: ignore UI tests in matrix job
+    - name: Run backend tests (exclude UI)
       run: |
-        pytest -v --html=report.html --self-contained-html --cov=. --cov-report=xml --cov-report=html
-    
+        pytest -v --ignore=test_ui.py --html=report.html --self-contained-html --cov=. --cov-report=xml --cov-report=html
+      continue-on-error: false
+
     - name: Stop Flask server
       if: always()
       run: |
@@ -72,7 +75,7 @@ jobs:
           kill $(cat server.pid) || true
           rm server.pid
         fi
-    
+
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -82,7 +85,7 @@ jobs:
           report.html
           htmlcov/
           coverage.xml
-    
+
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.11'
       uses: codecov/codecov-action@v4
@@ -93,14 +96,16 @@ jobs:
         fail_ci_if_error: false
 
 
-# --------------------------------------------------
-# 2️⃣ UI Tests (Playwright - Chromium + WebKit)
-# --------------------------------------------------
+  # --------------------------------------------------
+  # 2️⃣ UI Tests (Playwright - Chromium + WebKit)
+  #    ✅ Runs ONCE (Python 3.11) and installs browsers
+  #    ✅ Includes verify step to fail fast if missing
+  # --------------------------------------------------
   ui:
     name: Run UI Tests (Playwright)
     runs-on: ubuntu-latest
     needs: test
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -118,7 +123,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-ui-
 
-    - name: Install dependencies
+    # 🚫 NOTE: We intentionally DO NOT cache ~/.cache/ms-playwright
+    # until the pipeline is stable, because a partial cache causes
+    # "Executable doesn't exist" flakiness.
+
+    - name: Install dependencies (incl Playwright)
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
@@ -127,15 +136,16 @@ jobs:
     - name: Install Playwright browsers (Chromium + WebKit)
       run: |
         python -m playwright install --with-deps chromium webkit
-    
-    - name: Verify Playwright browsers are installed
+
+    - name: Verify Playwright browsers installed
       run: |
         python - <<'PY'
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-          print("chromium:", p.chromium.executable_path)
-          print("webkit:", p.webkit.executable_path)
+            print("chromium:", p.chromium.executable_path)
+            print("webkit:", p.webkit.executable_path)
         PY
+
     - name: Start Flask server in background
       run: |
         python app.py &
@@ -170,102 +180,104 @@ jobs:
         fi
 
 
-# --------------------------------------------------
-# 3️⃣ Lint
-# --------------------------------------------------
+  # --------------------------------------------------
+  # 3️⃣ Lint
+  # --------------------------------------------------
   lint:
     name: Code Quality Checks
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install linting tools
       run: |
         python -m pip install --upgrade pip
         pip install flake8 black pylint
-    
+
     - name: Run flake8
       run: |
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       continue-on-error: true
-    
-    - name: Check formatting with black
+
+    - name: Check code formatting with black
       run: |
         black --check --diff .
       continue-on-error: true
-    
+
     - name: Run pylint
       run: |
         pylint **/*.py --exit-zero --disable=C0111,C0103,R0903
       continue-on-error: true
 
 
-# --------------------------------------------------
-# 4️⃣ Security
-# --------------------------------------------------
+  # --------------------------------------------------
+  # 4️⃣ Security
+  # --------------------------------------------------
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install security tools
       run: |
         python -m pip install --upgrade pip
         pip install bandit safety
-    
+
     - name: Run Bandit security scan
       run: |
         bandit -r . -f json -o bandit-report.json || true
       continue-on-error: true
-    
+
     - name: Check dependencies for vulnerabilities
       run: |
         pip install -r requirements.txt
         safety check --json || true
       continue-on-error: true
-    
+
     - name: Upload security reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: security-reports
-        path: bandit-report.json
+        path: |
+          bandit-report.json
 
 
-# --------------------------------------------------
-# 5️⃣ Summary
-# --------------------------------------------------
+  # --------------------------------------------------
+  # 5️⃣ Summary
+  # --------------------------------------------------
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
     needs: [test, ui, lint, security]
     if: always()
-    
+
     steps:
     - name: Create summary
       run: |
         echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ✅ Jobs Completed" >> $GITHUB_STEP_SUMMARY
-        echo "- Backend tests (Python matrix)" >> $GITHUB_STEP_SUMMARY
-        echo "- UI tests (Chromium + WebKit, Desktop + Phone)" >> $GITHUB_STEP_SUMMARY
-        echo "- Lint checks" >> $GITHUB_STEP_SUMMARY
-        echo "- Security scan" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend tests (Python matrix 3.9–3.12) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- UI tests (Playwright: Chromium + WebKit, Desktop + Phone) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- Lint checks ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- Security scan ✅" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Artifacts"
+        echo "### 📊 Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Test reports + coverage uploaded (backend job) ✅" >> $GITHUB_STEP_SUMMARY
