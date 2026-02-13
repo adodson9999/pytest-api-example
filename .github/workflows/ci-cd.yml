@@ -17,7 +17,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
     - name: Checkout code
@@ -274,7 +274,7 @@ jobs:
         echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ✅ Jobs Completed" >> $GITHUB_STEP_SUMMARY
-        echo "- Backend tests (Python matrix 3.9–3.12) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend tests (Python matrix 3.10–3.12) ✅" >> $GITHUB_STEP_SUMMARY
         echo "- UI tests (Playwright: Chromium + WebKit, Desktop + Phone) ✅" >> $GITHUB_STEP_SUMMARY
         echo "- Lint checks ✅" >> $GITHUB_STEP_SUMMARY
         echo "- Security scan ✅" >> $GITHUB_STEP_SUMMARY

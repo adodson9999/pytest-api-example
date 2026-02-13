@@ -13,8 +13,6 @@ trainers_data = []
 vendors_data = []
 events_data = []
 
-#Test
-
 # ----------------------------
 # GraphQL Playground (GET /graphql)
 # ----------------------------
