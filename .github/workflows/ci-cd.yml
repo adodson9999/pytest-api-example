@@ -7,6 +7,9 @@ on:
     branches: [ main, develop ]
 
 jobs:
+# --------------------------------------------------
+# 1️⃣ Backend + Unit Tests (Python Matrix)
+# --------------------------------------------------
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -41,28 +44,26 @@ jobs:
       run: |
         python app.py &
         echo $! > server.pid
-        sleep 5
+        sleep 3
       env:
         FLASK_ENV: testing
     
     - name: Wait for server to be ready
       run: |
         echo "Waiting for server to start..."
-        sleep 5
         for i in {1..30}; do
-          if curl -f http://localhost:5001/health 2>/dev/null; then
+          if curl -f http://localhost:5001/graphql 2>/dev/null; then
             echo "Server is ready!"
             break
           fi
           echo "Attempt $i: Server not ready yet..."
           sleep 2
         done
-        curl -v http://localhost:5001/health || echo "Health check failed but continuing"
+        curl -v http://localhost:5001/graphql || echo "Server check failed but continuing"
     
-    - name: Run tests (matching local pytest command)
+    - name: Run backend tests
       run: |
         pytest -v --html=report.html --self-contained-html --cov=. --cov-report=xml --cov-report=html
-      continue-on-error: false
     
     - name: Stop Flask server
       if: always()
@@ -91,6 +92,87 @@ jobs:
         name: codecov-umbrella
         fail_ci_if_error: false
 
+
+# --------------------------------------------------
+# 2️⃣ UI Tests (Playwright - Chromium + WebKit)
+# --------------------------------------------------
+  ui:
+    name: Run UI Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-ui-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-ui-
+
+    - name: Cache Playwright browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-playwright playwright
+
+    - name: Install Playwright browsers (Chromium + WebKit)
+      run: |
+        python -m playwright install --with-deps chromium webkit
+
+    - name: Start Flask server in background
+      run: |
+        python app.py &
+        echo $! > server.pid
+        sleep 3
+      env:
+        FLASK_ENV: testing
+
+    - name: Wait for server to be ready
+      run: |
+        echo "Waiting for server to start..."
+        for i in {1..30}; do
+          if curl -f http://localhost:5001/graphql 2>/dev/null; then
+            echo "Server is ready!"
+            break
+          fi
+          echo "Attempt $i: Server not ready yet..."
+          sleep 2
+        done
+        curl -v http://localhost:5001/graphql || exit 1
+
+    - name: Run UI tests
+      run: |
+        pytest -v test_ui.py
+
+    - name: Stop Flask server
+      if: always()
+      run: |
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
+
+
+# --------------------------------------------------
+# 3️⃣ Lint
+# --------------------------------------------------
   lint:
     name: Code Quality Checks
     runs-on: ubuntu-latest
@@ -111,13 +193,11 @@ jobs:
     
     - name: Run flake8
       run: |
-        # Stop on critical errors
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Warning for other issues
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
       continue-on-error: true
     
-    - name: Check code formatting with black
+    - name: Check formatting with black
       run: |
         black --check --diff .
       continue-on-error: true
@@ -127,6 +207,10 @@ jobs:
         pylint **/*.py --exit-zero --disable=C0111,C0103,R0903
       continue-on-error: true
 
+
+# --------------------------------------------------
+# 4️⃣ Security
+# --------------------------------------------------
   security:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -161,13 +245,16 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: security-reports
-        path: |
-          bandit-report.json
+        path: bandit-report.json
 
+
+# --------------------------------------------------
+# 5️⃣ Summary
+# --------------------------------------------------
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [test, lint, security]
+    needs: [test, ui, lint, security]
     if: always()
     
     steps:
@@ -176,9 +263,9 @@ jobs:
         echo "## 🚀 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ✅ Jobs Completed" >> $GITHUB_STEP_SUMMARY
-        echo "- **Testing**: Completed across Python 3.9, 3.10, 3.11, 3.12" >> $GITHUB_STEP_SUMMARY
-        echo "- **Linting**: Code quality checks performed" >> $GITHUB_STEP_SUMMARY
-        echo "- **Security**: Vulnerability scans completed" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend tests (Python matrix)" >> $GITHUB_STEP_SUMMARY
+        echo "- UI tests (Chromium + WebKit, Desktop + Phone)" >> $GITHUB_STEP_SUMMARY
+        echo "- Lint checks" >> $GITHUB_STEP_SUMMARY
+        echo "- Security scan" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "- Test reports and coverage available in artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Artifacts"
