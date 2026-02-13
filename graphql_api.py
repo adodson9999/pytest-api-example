@@ -1,5 +1,11 @@
 from ariadne import QueryType, MutationType, make_executable_schema, graphql_sync
 from flask import request, jsonify
+import logging
+import time
+import uuid
+import os
+import logging
+from logging.handlers import RotatingFileHandler
 
 # ----------------------------
 # In-memory data stores (wired via init_graphql)
@@ -591,6 +597,24 @@ def resolve_update_event(_, info, id, name=None, date=None, location=None):
 def resolve_delete_event(_, info, id):
     return {"success": _delete_by_id(events_data, id)}
 
+
+def setup_graphql_logging(app):
+    logger = logging.getLogger("graphql")
+    logger.setLevel(logging.INFO)
+
+    # Avoid duplicate handlers if app reloads
+    if logger.handlers:
+        return
+
+    if os.getenv("FLASK_ENV") == "testing":
+        handler = RotatingFileHandler("logs/graphql_test.log", maxBytes=2_000_000, backupCount=2)
+    else:
+        handler = logging.StreamHandler()
+
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
 # ----------------------------
 # Executable schema
 # ----------------------------
@@ -599,13 +623,72 @@ schema = make_executable_schema(type_defs, query, mutation)
 # ----------------------------
 # init_graphql (updated signature and wiring)
 # ----------------------------
+
+# graphql_server.py (or wherever your init_graphql lives)
+# ✅ Full init_graphql with ALL observability changes:
+# - request_id generation + propagation (X-Request-Id / X-Correlation-Id / uuid)
+# - JSON line logging to a file during testing (and stdout in non-testing)
+# - Robust log path (env override GRAPHQL_LOG_PATH; defaults to logs/graphql_test.log)
+# - Ensures logs/ dir exists
+# - Avoids duplicate handlers
+# - Logs request summary + error summary events
+# - Echoes X-Request-Id in response headers
+
+import json
+import logging
+import os
+import time
+import uuid
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
+
+from flask import request, jsonify
+from ariadne import graphql_sync
+
+# assumes schema and PLAYGROUND_HTML are in scope
+# from .schema import schema, PLAYGROUND_HTML
+
+
+import json
+import logging
+import os
+import time
+import uuid
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
+
+from flask import request, jsonify
+from ariadne import graphql_sync
+
+# assumes schema + PLAYGROUND_HTML are defined in this module
+# from .graphql_schema import schema, PLAYGROUND_HTML
+
+
 def init_graphql(app, pets_store, orders_store, events, inventory, vendors, trainers, customers, vets):
     """
     Initialize GraphQL with the Flask app and data stores.
 
-    NOTE: This wires your REST stores into GraphQL:
-      - createPet also creates an inventory record with inventory=1 (shared behavior).
+    ✅ Observability/Logging (STRATA-style) additions:
+      - request_id correlation (X-Request-Id / X-Correlation-Id / uuid)
+      - JSON-lines logging (machine-parseable)
+      - request summary event:   event=graphql_request
+      - error summary event:     event=graphql_error (when result.errors exists)
+      - invalid request event:   event=graphql_request_invalid (no body)
+      - duration_ms, operation_name, operation_type
+      - response header X-Request-Id echoed back to caller
+
+    ✅ Separate-process friendly:
+      - Writes to a log file in testing mode so pytest (running in another process)
+        can validate logs by reading the file.
+
+    Environment:
+      - FLASK_ENV=testing                 -> enables file logging
+      - GRAPHQL_LOG_PATH=logs/graphql_test.log  -> override log file path (default shown)
     """
+
+    # ----------------------------
+    # Wire stores into module globals (your existing behavior)
+    # ----------------------------
     global pets_data, orders_data, events_data, inventory_data, vendors_data, trainers_data, customers_data, vets_data
     pets_data = pets_store
     orders_data = orders_store
@@ -616,20 +699,135 @@ def init_graphql(app, pets_store, orders_store, events, inventory, vendors, trai
     customers_data = customers
     vets_data = vets
 
+    # ----------------------------
+    # Logging setup (robust + repeatable)
+    #   IMPORTANT: we always clear handlers to avoid "already had handlers"
+    #   which otherwise prevents file logging from being attached.
+    # ----------------------------
+    logger = logging.getLogger("graphql")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False  # don't duplicate logs through root logger
+
+    env = (os.getenv("FLASK_ENV") or "").lower().strip()
+    log_path_str = os.getenv("GRAPHQL_LOG_PATH", "logs/graphql_test.log")
+
+    # Use CWD so both server and tests refer to the same relative path
+    log_path = (Path(os.getcwd()) / log_path_str).resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Clear any existing handlers to guarantee current config applies
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+
+    if env == "testing":
+        file_handler = RotatingFileHandler(
+            str(log_path),
+            maxBytes=2_000_000,
+            backupCount=2,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter("%(message)s"))  # JSON lines only
+        logger.addHandler(file_handler)
+    else:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(stream_handler)
+
+    # One-time marker to prove logging is wired
+    logger.info(json.dumps({
+        "event": "logger_ready",
+        "env": env or "unknown",
+        "log_path": str(log_path) if env == "testing" else None,
+    }))
+
+    # ----------------------------
+    # Helpers
+    # ----------------------------
+    def _get_request_id() -> str:
+        return (
+            request.headers.get("X-Request-Id")
+            or request.headers.get("X-Correlation-Id")
+            or str(uuid.uuid4())
+        )
+
+    def _infer_operation_type(query_text: str | None) -> str:
+        if not query_text:
+            return "unknown"
+        q = query_text.lstrip()
+        if q.startswith("mutation"):
+            return "mutation"
+        if q.startswith("query"):
+            return "query"
+        # anonymous query often omits "query" keyword
+        return "query"
+
+    # ----------------------------
+    # Routes
+    # ----------------------------
     @app.route("/graphql", methods=["GET"])
     def graphql_playground():
         return PLAYGROUND_HTML, 200
 
     @app.route("/graphql", methods=["POST"])
     def graphql_server():
+        started = time.perf_counter()
+        request_id = _get_request_id()
+
         data = request.get_json(silent=True)
         if not data:
-            return jsonify({"error": "No data provided"}), 400
+            logger.warning(json.dumps({
+                "event": "graphql_request_invalid",
+                "request_id": request_id,
+                "reason": "no_data",
+                "path": request.path,
+                "method": request.method,
+            }))
+            resp = jsonify({"error": "No data provided"})
+            resp.headers["X-Request-Id"] = request_id
+            return resp, 400
+
+        query_text = data.get("query")
+        operation_name = data.get("operationName") or "anonymous"
+        operation_type = _infer_operation_type(query_text)
 
         success, result = graphql_sync(
             schema,
             data,
-            context_value={"request": request},
+            context_value={"request": request, "request_id": request_id},
             debug=app.debug
         )
-        return jsonify(result), (200 if success else 400)
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
+
+        # Always log request summary (even if it errors)
+        logger.info(json.dumps({
+            "event": "graphql_request",
+            "request_id": request_id,
+            "operation_name": operation_name,
+            "operation_type": operation_type,
+            "duration_ms": duration_ms,
+            "status": "success" if success else "failed",
+        }))
+
+        # If GraphQL returned errors, log a structured error event too
+        errors = (result or {}).get("errors") or []
+        if errors:
+            messages = []
+            for e in errors:
+                if isinstance(e, dict):
+                    messages.append(e.get("message"))
+                else:
+                    messages.append(str(e))
+
+            logger.error(json.dumps({
+                "event": "graphql_error",
+                "request_id": request_id,
+                "operation_name": operation_name,
+                "operation_type": operation_type,
+                "duration_ms": duration_ms,
+                "errors": [m for m in messages if m],
+            }))
+
+        resp = jsonify(result)
+        resp.headers["X-Request-Id"] = request_id
+        return resp, (200 if success else 400)
