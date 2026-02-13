@@ -5,8 +5,6 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 
-base_url = 'http://localhost:5000'
-
 
 # Disable warnings for insecure requests
 urllib3.disable_warnings(InsecureRequestWarning)
@@ -23,7 +21,7 @@ def make_request(method, url, headers=None, params=None, json=None, files=None, 
     response = None
     error_message = ""
 
-    full_url = f"http://127.0.0.1:5000{url}"
+    full_url = f"http://127.0.0.1:5001{url}"
 
     for attempt in range(1, max_retries + 1):
         try:
