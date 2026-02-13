@@ -23,7 +23,6 @@ class Models:
             'status': fields.String(description='The pet status', enum=PET_STATUS)
         })
 
-        
         self.customer_model = api.model('Customer', {
             'id': fields.Integer(description='The customer ID'),
             'name': fields.String(required=True, description='The customer name'),
@@ -35,6 +34,7 @@ class Models:
         self.inventory_model = self.api.model('Inventory', {
             'id': fields.Integer(description='Inventory Id'),
             'inventory': fields.Integer(description='Inventory of'),
+            "pet_id": fields.Integer(description='If applicable pet id')
         })
         
         self.vet_model = self.api.model('Vet', {

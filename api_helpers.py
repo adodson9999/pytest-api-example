@@ -12,10 +12,6 @@ urllib3.disable_warnings(InsecureRequestWarning)
 # Use httpx for better performance and session reuse
 client = httpx.Client(verify=False)
 
-import time
-import httpx
-import tkinter as tk
-from tkinter import messagebox
 
 def make_request(method, url, headers=None, params=None, json=None, files=None, max_retries=3):
     response = None

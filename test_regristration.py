@@ -326,21 +326,465 @@ def test_post_rejects_non_int_id_400(r):
 # -----------------------------
 @pytest.mark.parametrize("r", RESOURCES)
 def test_post_duplicate_id_409(r):
-    # Create first item with explicit id
-    payload1 = r["make_payload"]()
-    payload1["id"] = 999999  # arbitrary, but fixed for this test
-    resp1 = _create_item(r["base"], payload1)
-    assert resp1.status_code in (200, 201), f"{r['label']} create #1 failed. Body: {resp1.text}"
+    """
+    Verify:
+      1. First POST with explicit ID succeeds
+      2. Second POST with same ID returns 409
+    Uses a guaranteed-unique ID so it never collides with previous test data.
+    """
 
-    # Create second item with same id should 409
+    # Generate a unique integer ID per test run
+    # uuid4 ensures it will never collide
+    unique_id = uuid.uuid4().int % 10_000_000_000  # large positive int
+
+    # ---- Create first item with explicit id ----
+    payload1 = r["make_payload"]()
+    payload1["id"] = unique_id
+
+    resp1 = _create_item(r["base"], payload1)
+
+    assert resp1.status_code in (200, 201), (
+        f"{r['label']} create #1 failed. "
+        f"Status: {resp1.status_code}. Body: {resp1.text}"
+    )
+
+    # ---- Create second item with same id (should fail) ----
     payload2 = r["make_payload"]()
-    payload2["id"] = 999999
+    payload2["id"] = unique_id
+
     resp2 = _create_item(r["base"], payload2)
+
     assert resp2.status_code == 409, (
-        f"{r['label']} duplicate id should 409. Got {resp2.status_code}. Body: {resp2.text}"
+        f"{r['label']} duplicate id should 409. "
+        f"Got {resp2.status_code}. Body: {resp2.text}"
     )
 
 
 
+import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+import pytest
+import requests
 
 
+# ----------------------------
+# Config: point this at your running API
+# ----------------------------
+BASE_URL = "http://localhost:5001"
+
+# IMPORTANT:
+# These "base" paths must match your Namespace prefixes.
+# If your namespaces are mounted differently, update these.
+RESOURCES = [
+    {
+        "label": "Pet",
+        "base": "/pet",
+        "searchable_fields": ["name", "type", "status"],
+        "filterable_fields": ["name", "type", "status", "order_id"],
+        "make_payload": lambda i: {
+            "name": f"Pet {i}",
+            "type": "dog",
+            "status": "available",
+            "order_id": 0,
+        },
+        "filter_key": "status",
+        "filter_val": "available",
+        "search_key": "name",
+    },
+    {
+        "label": "Customer",
+        "base": "/customer",
+        "searchable_fields": ["name", "email", "date"],
+        "filterable_fields": ["name", "email", "date", "purchase"],
+        "make_payload": lambda i: {
+            "name": f"Customer {i}",
+            "date": "2026-02-13",
+            "purchase": 1,
+            "email": f"customer{i}@example.com",
+        },
+        "filter_key": "purchase",
+        "filter_val": 1,
+        "search_key": "email",
+    },
+    {
+        "label": "Inventory",
+        "base": "/inventory",
+        "searchable_fields": ["pet_id"],
+        "filterable_fields": ["pet_id", "inventory"],
+        "make_payload": lambda i: {
+            "inventory": 10,
+            "pet_id": i,
+        },
+        "filter_key": "inventory",
+        "filter_val": 10,
+        "search_key": "pet_id",
+    },
+    {
+        "label": "Vet",
+        "base": "/vet",
+        "searchable_fields": ["name", "contact_form"],
+        "filterable_fields": ["name", "contact_form", "contact_info"],
+        "make_payload": lambda i: {
+            "name": f"Vet {i}",
+            "contact_form": "email",
+            "contact_info": 123456,
+        },
+        "filter_key": "contact_form",
+        "filter_val": "email",
+        "search_key": "name",
+    },
+    {
+        "label": "Trainer",
+        "base": "/trainer",
+        "searchable_fields": ["name", "contact_form"],
+        "filterable_fields": ["name", "contact_form", "contact_info"],
+        "make_payload": lambda i: {
+            "name": f"Trainer {i}",
+            "contact_form": "phone",
+            "contact_info": 987654,
+        },
+        "filter_key": "contact_form",
+        "filter_val": "phone",
+        "search_key": "name",
+    },
+    {
+        "label": "Vendor",
+        "base": "/vendor",
+        "searchable_fields": ["name", "contact_form", "point_of_contact", "contact_info"],
+        "filterable_fields": ["name", "contact_form", "point_of_contact", "product"],
+        "make_payload": lambda i: {
+            "name": f"Vendor {i}",
+            "contact_form": "email",
+            "contact_info": "vendor@example.com",
+            "point_of_contact": "Alice",
+            "product": 1,
+        },
+        "filter_key": "product",
+        "filter_val": 1,
+        "search_key": "point_of_contact",
+    },
+    {
+        "label": "Event",
+        "base": "/event",
+        "searchable_fields": ["name", "date"],
+        "filterable_fields": ["name", "date", "location"],
+        "make_payload": lambda i: {
+            "name": f"Event {i}",
+            "date": "2026-02-13",
+            "location": 100,
+        },
+        "filter_key": "location",
+        "filter_val": 100,
+        "search_key": "name",
+    },
+]
+
+import uuid
+from typing import Any, Dict, List, Optional, Tuple
+
+import pytest
+import requests
+
+
+BASE_URL = "http://localhost:5001"
+
+
+# ----------------------------
+# HTTP helpers
+# ----------------------------
+def _url(path: str) -> str:
+    return f"{BASE_URL}{path}"
+
+def _get(path: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+    return requests.get(_url(path), params=params)
+
+def _post_json(path: str, body: Any) -> requests.Response:
+    return requests.post(_url(path), json=body, headers={"Content-Type": "application/json"})
+
+def _patch_json(path: str, body: Any) -> requests.Response:
+    return requests.patch(_url(path), json=body, headers={"Content-Type": "application/json"})
+
+
+# ----------------------------
+# Swagger discovery
+# ----------------------------
+def _load_swagger() -> Dict[str, Any]:
+    # Try common swagger.json locations
+    for p in ("/swagger.json", "/api/swagger.json", "/v1/swagger.json", "/api/v1/swagger.json"):
+        r = _get(p)
+        if r.status_code == 200:
+            return r.json()
+    raise AssertionError(
+        "Could not find swagger.json at common paths. "
+        "Try opening /swagger.json in browser to see where it is."
+    )
+
+def _discover_bases(swagger: Dict[str, Any]) -> List[str]:
+    """
+    Discover base resources that have the register_common_extras endpoints.
+    We look for paths ending with /count and infer the base.
+    """
+    paths = swagger.get("paths", {})
+    bases = set()
+
+    for path in paths.keys():
+        # Example: /pet/count -> base /pet
+        if path.endswith("/count"):
+            base = path[: -len("/count")]
+            bases.add(base)
+
+    return sorted(bases)
+
+def _pick_create_path(swagger: Dict[str, Any], base: str) -> str:
+    """
+    Your create endpoint might be:
+      POST {base}/
+    or POST {base}
+    We'll try both, based on swagger paths.
+    """
+    paths = swagger.get("paths", {})
+    if base in paths and "post" in paths[base]:
+        return base
+    if f"{base}/" in paths and "post" in paths[f"{base}/"]:
+        return f"{base}/"
+    # fallback to base + "/"
+    return f"{base}/"
+
+
+# ----------------------------
+# Generic payload maker (minimal valid objects)
+# You can override per base if needed.
+# ----------------------------
+def _default_payload_for_base(base: str, i: int) -> Dict[str, Any]:
+    # Heuristics based on base name
+    b = base.lower()
+    if "pet" in b:
+        return {"name": f"Pet {i}", "type": "dog", "status": "available", "order_id": 0}
+    if "customer" in b:
+        return {"name": f"Customer {i}", "date": "2026-02-13", "purchase": 1, "email": f"c{i}@example.com"}
+    if "inventory" in b:
+        return {"inventory": 10, "pet_id": i}
+    if "vet" in b:
+        return {"name": f"Vet {i}", "contact_form": "email", "contact_info": 123456}
+    if "trainer" in b:
+        return {"name": f"Trainer {i}", "contact_form": "phone", "contact_info": 987654}
+    if "vendor" in b:
+        return {
+            "name": f"Vendor {i}",
+            "contact_form": "email",
+            "contact_info": "vendor@example.com",
+            "point_of_contact": "Alice",
+            "product": 1,
+        }
+    if "event" in b:
+        return {"name": f"Event {i}", "date": "2026-02-13", "location": 100}
+    # fallback: try name-only
+    return {"name": f"Item {i}"}
+
+
+# ----------------------------
+# Test resource wrapper discovered from swagger
+# ----------------------------
+def _make_resource(swagger: Dict[str, Any], base: str) -> Dict[str, Any]:
+    create_path = _pick_create_path(swagger, base)
+
+    # best-effort label
+    label = base.strip("/").split("/")[-1].title()
+
+    # choose a search key & filter key based on likely fields
+    # these will be used only if endpoints exist
+    search_key = "name"
+    filter_key = "name"
+    filter_val = None
+
+    bl = base.lower()
+    if "pet" in bl:
+        filter_key, filter_val = "status", "available"
+        search_key = "name"
+    elif "customer" in bl:
+        filter_key, filter_val = "purchase", 1
+        search_key = "email"
+    elif "inventory" in bl:
+        filter_key, filter_val = "inventory", 10
+        search_key = "pet_id"
+    elif "vet" in bl:
+        filter_key, filter_val = "contact_form", "email"
+        search_key = "name"
+    elif "trainer" in bl:
+        filter_key, filter_val = "contact_form", "phone"
+        search_key = "name"
+    elif "vendor" in bl:
+        filter_key, filter_val = "product", 1
+        search_key = "point_of_contact"
+    elif "event" in bl:
+        filter_key, filter_val = "location", 100
+        search_key = "name"
+
+    return {
+        "label": label,
+        "base": base,
+        "create": create_path,
+        "make_payload": lambda i: _default_payload_for_base(base, i),
+        "filter_key": filter_key,
+        "filter_val": filter_val,
+        "search_key": search_key,
+    }
+
+
+# ----------------------------
+# Shared helpers for the tests
+# ----------------------------
+def _create_one(r: Dict[str, Any], *, i: int) -> Dict[str, Any]:
+    payload = r["make_payload"](i)
+    resp = _post_json(r["create"], payload)
+    assert resp.status_code in (200, 201), (
+        f"{r['label']} create failed.\n"
+        f"POST {r['create']}\n"
+        f"status={resp.status_code}\n"
+        f"body={resp.text[:1000]}"
+    )
+    data = resp.json()
+    assert isinstance(data.get("id"), int), f"{r['label']} create missing/invalid id. Body: {data}"
+    return data
+
+def _bulk_create(r: Dict[str, Any], objs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    resp = _post_json(f"{r['base']}/bulk", objs)
+    assert resp.status_code in (200, 201), f"{r['label']} bulk create failed. {resp.status_code} Body: {resp.text}"
+    data = resp.json()
+    assert "created" in data and "count" in data
+    return data
+
+def _bulk_delete(r: Dict[str, Any], ids: List[int]) -> Dict[str, Any]:
+    resp = _post_json(f"{r['base']}/bulk/delete", {"ids": ids})
+    assert resp.status_code == 200, f"{r['label']} bulk delete failed. {resp.status_code} Body: {resp.text}"
+    data = resp.json()
+    assert "deleted" in data and "requested" in data
+    return data
+
+def _bulk_patch(r: Dict[str, Any], ids: List[int], changes: Dict[str, Any]) -> Dict[str, Any]:
+    resp = _patch_json(f"{r['base']}/bulk/patch", {"ids": ids, "set": changes})
+    assert resp.status_code == 200, f"{r['label']} bulk patch failed. {resp.status_code} Body: {resp.text}"
+    data = resp.json()
+    assert "updated" in data and "requested" in data
+    return data
+
+
+# ----------------------------
+# Build exactly 50 cases from discovered bases
+# ----------------------------
+EXTRA_ENDPOINTS = ["count", "ids", "exists", "search", "filter", "bulk_create", "bulk_delete", "bulk_patch"]
+
+@pytest.fixture(scope="session")
+def discovered_resources():
+    swagger = _load_swagger()
+    bases = _discover_bases(swagger)
+    assert bases, "No bases discovered. Did you register /count endpoints with register_common_extras?"
+    return [_make_resource(swagger, b) for b in bases]
+
+def _build_cases(resources: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], str]]:
+    cases: List[Tuple[Dict[str, Any], str]] = []
+    for r in resources:
+        for ep in EXTRA_ENDPOINTS:
+            cases.append((r, ep))
+    return cases[:50]
+
+
+# ----------------------------
+# Tests (50)
+# ----------------------------
+@pytest.mark.parametrize("idx", range(50))
+def test_register_common_extras_50_cases(discovered_resources, idx):
+    r, ep = _build_cases(discovered_resources)[idx]
+
+    seed_i = uuid.uuid4().int % 1_000_000
+    created = _create_one(r, i=seed_i)
+
+    if ep == "count":
+        resp = _get(f"{r['base']}/count")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data.get("count"), int)
+        assert data["count"] >= 1
+
+    elif ep == "ids":
+        resp = _get(f"{r['base']}/ids")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data.get("ids"), list)
+        assert created["id"] in data["ids"]
+
+    elif ep == "exists":
+        resp = _get(f"{r['base']}/exists/{created['id']}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("exists") is True
+        assert data.get("id") == created["id"]
+
+    elif ep == "search":
+        q_val = created.get(r["search_key"])
+        if q_val is None:
+            pytest.skip(f"{r['label']} created item missing searchable key {r['search_key']}")
+        resp = _get(f"{r['base']}/search", params={"q": str(q_val)})
+        assert resp.status_code == 200, f"{r['label']} search failed: {resp.text}"
+        items = resp.json()
+        assert isinstance(items, list)
+        assert any(x.get("id") == created["id"] for x in items)
+
+        # Missing q should 400
+        resp2 = _get(f"{r['base']}/search")
+        assert resp2.status_code == 400
+
+    elif ep == "filter":
+        k = r["filter_key"]
+        v = r["filter_val"]
+        if v is None:
+            pytest.skip(f"{r['label']} filter not configured in test mapping")
+
+        # Ensure an item matches the filter
+        if str(created.get(k)) != str(v):
+            payload = r["make_payload"](seed_i + 1)
+            payload[k] = v
+            resp_seed = _post_json(r["create"], payload)
+            assert resp_seed.status_code in (200, 201), f"{r['label']} filter seed failed: {resp_seed.text}"
+            match = resp_seed.json()
+        else:
+            match = created
+
+        resp = _get(f"{r['base']}/filter", params={k: v})
+        assert resp.status_code == 200
+        items = resp.json()
+        assert isinstance(items, list)
+        assert any(x.get("id") == match["id"] for x in items)
+
+        # No params should 400
+        resp2 = _get(f"{r['base']}/filter")
+        assert resp2.status_code == 400
+
+    elif ep == "bulk_create":
+        objs = [r["make_payload"](seed_i + 10), r["make_payload"](seed_i + 11)]
+        out = _bulk_create(r, objs)
+        assert out["count"] == 2
+        assert all(isinstance(x.get("id"), int) for x in out["created"])
+
+    elif ep == "bulk_delete":
+        c1 = _create_one(r, i=seed_i + 20)
+        c2 = _create_one(r, i=seed_i + 21)
+        out = _bulk_delete(r, [c1["id"], c2["id"]])
+        assert out["requested"] == 2
+
+    elif ep == "bulk_patch":
+        c1 = _create_one(r, i=seed_i + 30)
+        c2 = _create_one(r, i=seed_i + 31)
+
+        # safe patch field
+        changes = {"name": f"{r['label']} Patched"}
+        if "pet" in r["base"].lower():
+            changes = {"status": "pending"}
+
+        out = _bulk_patch(r, [c1["id"], c2["id"]], changes)
+        assert out["requested"] == 2
+
+    else:
+        raise AssertionError(f"Unknown ep: {ep}")
