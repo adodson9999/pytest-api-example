@@ -5005,3 +5005,6 @@
 {"event": "graphql_request", "request_id": "b0687007-1dc6-4775-9cef-03c23ee58ada", "operation_name": "ListPetsAll", "operation_type": "query", "duration_ms": 0, "status": "success"}
 {"event": "graphql_request", "request_id": "603732da-0f8b-464b-9092-251313705b7e", "operation_name": "ListPetsAll", "operation_type": "query", "duration_ms": 2, "status": "success"}
 {"event": "graphql_request", "request_id": "c3ca777e-5fce-4ac8-bda2-b0694da4763f", "operation_name": "ListPetsAll", "operation_type": "query", "duration_ms": 1, "status": "success"}
+{"event": "logger_ready", "env": "testing", "log_path": "/Users/alexdodson/Downloads/pytest-api-example/logs/graphql_test.log"}
+{"event": "logger_ready", "env": "testing", "log_path": "/Users/alexdodson/Downloads/pytest-api-example/logs/graphql_test.log"}
+{"event": "logger_ready", "env": "testing", "log_path": "/Users/alexdodson/Downloads/pytest-api-example/logs/graphql_test.log"}

@@ -368,6 +368,43 @@ That is exactly what a STRATA Sr. SDET would do.
 
 
 
+## Performance / Load Testing (GraphQL)
+
+### Why This Was Added (STRATA Context)
+STRATA is described as an "API/data highway" with GraphQL handling ~90% of communication.  
+Middleware platforms must be validated not only for correctness but also for:
+- latency under concurrency
+- low error rates under sustained traffic
+- consistent state under concurrent mutations (race-condition resistance)
+
+### What Was Implemented
+- **Locust load profile** (`load/locustfile.py`)
+  - Generates realistic GraphQL traffic mix: read queries + concurrent mutations
+  - Sends `X-Request-Id` to align with observability correlation practices
+  - Tags created entities via `LOAD_RUN_ID` for post-run verification
+
+- **CI Performance Gate** (`load/check_perf_locust.py`)
+  - Parses Locust CSV output and fails CI if thresholds are exceeded
+  - Default example thresholds:
+    - p95 latency ≤ **250ms**
+    - failure rate ≤ **1%**
+
+
+### How It Runs in CI
+A dedicated workflow job runs:
+1) Flask app startup  
+2) headless Locust run (CSV output)  
+3) performance gate check (p95 + failure rate)  
+4) invariant validation (race-condition guard)  
+5) upload Locust CSV artifacts for debugging
+
+### Why This Demonstrates Senior SDET Thinking
+- Validates **resilience**, not just correctness
+- Adds measurable SLO-style gates (latency + error rate)
+- Treats concurrency issues as first-class risks (middleware reality)
+- Produces artifacts useful to engineering teams (CSV + logs)
+
+
 Final Summary
 This enhancement transforms a basic assessment into:
 - A STRATA-style middleware simulation with enterprise-grade automation.

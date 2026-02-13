@@ -183,3 +183,21 @@ python3 -m locust -f load/locustfile.py \
   --csv load/locust_results
 
 """
+
+
+"""
+Locust load profile for STRATA-style GraphQL middleware traffic.
+
+Why this exists (STRATA context):
+- STRATA is an "API/data highway" where GraphQL sits in the middle of many callers.
+- Correctness alone isn't enough; middleware must be resilient under concurrency.
+- This load test generates a realistic mix of reads + writes against /graphql.
+
+What this test validates:
+- Performance under sustained traffic (read-heavy + mutation traffic).
+- Error rate stays low (GraphQL "errors" count as failures here).
+- Concurrency behavior: multiple users createPet concurrently (write amplification).
+
+Notes:
+- We send X-Request-Id to align with observability correlation practices.
+"""
