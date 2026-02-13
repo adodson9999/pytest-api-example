@@ -1,0 +1,12 @@
+[
+    {"id": 1, "name": "Buddy", "type": "dog", "status": "available", "order_id": 0},
+    {"id": 2, "name": "Whiskers", "type": "cat", "status": "sold", "order_id": 1},
+    {"id": 3, "name": "Charlie", "type": "dog", "status": "pending", "order_id": 2},
+    {"id": 4, "name": "Luna", "type": "cat", "status": "available", "order_id": 0},
+    {"id": 5, "name": "Coco", "type": "bird", "status": "available", "order_id": 0},
+    {"id": 6, "name": "Max", "type": "dog", "status": "sold", "order_id": 3},
+    {"id": 7, "name": "Daisy", "type": "rabbit", "status": "pending", "order_id": 4},
+    {"id": 8, "name": "Rocky", "type": "dog", "status": "available", "order_id": 0},
+    {"id": 9, "name": "Milo", "type": "cat", "status": "sold", "order_id": 5},
+    {"id": 10, "name": "Bella", "type": "dog", "status": "pending", "order_id": 6}
+]

@@ -1,0 +1,12 @@
+[
+    {"id": 1, "name": "Puppy Adoption Day", "date": "2026-03-15", "location": 101},
+    {"id": 2, "name": "Kitten Meet & Greet", "date": "2026-04-02", "location": 205},
+    {"id": 3, "name": "Exotic Pet Showcase", "date": "2026-05-21", "location": 309},
+    {"id": 4, "name": "Pet Nutrition Workshop", "date": "2026-03-30", "location": 412},
+    {"id": 5, "name": "Dog Training Demo Day", "date": "2026-06-10", "location": 518},
+    {"id": 6, "name": "Pet Grooming Live Demo", "date": "2026-07-18", "location": 623},
+    {"id": 7, "name": "Local Breeder Expo", "date": "2026-08-05", "location": 734},
+    {"id": 8, "name": "Family Pet Fun Fair", "date": "2026-09-12", "location": 845},
+    {"id": 9, "name": "Holiday Pet Costume Contest", "date": "2026-10-03", "location": 956},
+    {"id": 10, "name": "Winter Adoption Weekend", "date": "2026-12-01", "location": 107}
+]

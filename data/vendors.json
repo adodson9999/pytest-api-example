@@ -1,0 +1,82 @@
+[
+    {
+        "id": 1,
+        "name": "Summit Supply Co.",
+        "contact_form": "email",
+        "contact_info": "sales@summitsupply.com",
+        "point_of_contact": "Jordan Blake",
+        "product": 1
+    },
+    {
+        "id": 2,
+        "name": "Blue Ridge Distributors",
+        "contact_form": "phone",
+        "contact_info": "704-555-1123",
+        "point_of_contact": "Melissa Grant",
+        "product": 2
+    },
+    {
+        "id": 3,
+        "name": "NextGen Wholesale",
+        "contact_form": "email",
+        "contact_info": "contact@nextgenwholesale.com",
+        "point_of_contact": "Derek Shaw",
+        "product": 3
+    },
+    {
+        "id": 4,
+        "name": "Prime Industrial Goods",
+        "contact_form": "phone",
+        "contact_info": "980-555-7784",
+        "point_of_contact": "Alicia Monroe",
+        "product": 4
+    },
+    {
+        "id": 5,
+        "name": "Urban Trade Hub",
+        "contact_form": "email",
+        "contact_info": "support@urbantradehub.com",
+        "point_of_contact": "Kevin Turner",
+        "product": 5
+    },
+    {
+        "id": 6,
+        "name": "Pinnacle Parts Group",
+        "contact_form": "email",
+        "contact_info": "info@pinnacleparts.com",
+        "point_of_contact": "Sophia Ramirez",
+        "product": 6
+    },
+    {
+        "id": 7,
+        "name": "Atlas Equipment Supply",
+        "contact_form": "phone",
+        "contact_info": "704-555-9981",
+        "point_of_contact": "Marcus Hill",
+        "product": 7
+    },
+    {
+        "id": 8,
+        "name": "Everest Trading Co.",
+        "contact_form": "email",
+        "contact_info": "orders@everesttrading.com",
+        "point_of_contact": "Rachel Kim",
+        "product": 8
+    },
+    {
+        "id": 9,
+        "name": "Horizon Distribution",
+        "contact_form": "phone",
+        "contact_info": "980-555-4432",
+        "point_of_contact": "Anthony Cole",
+        "product": 9
+    },
+    {
+        "id": 10,
+        "name": "Vertex Supply Solutions",
+        "contact_form": "email",
+        "contact_info": "hello@vertexsupply.com",
+        "point_of_contact": "Isabella Reed",
+        "product": 10
+    }
+]
