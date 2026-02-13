@@ -1,0 +1,98 @@
+import argparse
+import csv
+import sys
+from pathlib import Path
+
+
+def load_aggregated_row(stats_csv: Path) -> dict:
+    if not stats_csv.exists():
+        raise FileNotFoundError(f"Locust stats CSV not found: {stats_csv}")
+
+    with stats_csv.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    if not rows:
+        raise ValueError(f"No rows in stats CSV: {stats_csv}")
+
+    # Locust usually includes an aggregated row with Name="Aggregated"
+    agg = next((r for r in rows if (r.get("Name") or "").strip().lower() == "aggregated"), None)
+    if agg:
+        return agg
+
+    # Fallback: sometimes Type may indicate Aggregated
+    agg2 = next((r for r in rows if (r.get("Type") or "").strip().lower() == "aggregated"), None)
+    if agg2:
+        return agg2
+
+    # Last resort: use first row
+    return rows[0]
+
+
+def as_float(row: dict, key: str, default: float = 0.0) -> float:
+    val = row.get(key)
+    if val is None or str(val).strip() == "":
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Fail build if Locust perf thresholds are exceeded.")
+    ap.add_argument("--csv-prefix", required=True, help="Prefix passed to locust --csv (e.g., load/locust_results)")
+    ap.add_argument("--p95-ms", type=float, default=250.0, help="p95 max latency in ms (default 250)")
+    ap.add_argument("--max-fail-rate", type=float, default=0.01, help="max failure rate (default 0.01=1%)")
+    args = ap.parse_args()
+
+    stats_csv = Path(f"{args.csv_prefix}_stats.csv")
+    agg = load_aggregated_row(stats_csv)
+
+    # Locust CSV columns usually include: "Request Count", "Failure Count", "95%"
+    req_count = as_float(agg, "Request Count", 0.0)
+    fail_count = as_float(agg, "Failure Count", 0.0)
+
+    # Percentiles columns are typically strings like "95%"
+    p95 = as_float(agg, "95%", 0.0)
+    p50 = as_float(agg, "50%", 0.0)
+    avg = as_float(agg, "Average Response Time", 0.0)
+
+    fail_rate = (fail_count / req_count) if req_count > 0 else 0.0
+
+    print("=== Locust Performance Summary (Aggregated) ===")
+    print(f"Requests: {int(req_count)}")
+    print(f"Failures: {int(fail_count)}")
+    print(f"Failure rate: {fail_rate:.4f}")
+    print(f"p50(ms): {p50:.2f}")
+    print(f"p95(ms): {p95:.2f}")
+    print(f"avg(ms): {avg:.2f}")
+    print("==============================================")
+
+    failed = False
+    if p95 > args.p95_ms:
+        print(f"❌ FAIL: p95 {p95:.2f}ms > {args.p95_ms:.2f}ms")
+        failed = True
+
+    if fail_rate > args.max_fail_rate:
+        print(f"❌ FAIL: failure rate {fail_rate:.4f} > {args.max_fail_rate:.4f}")
+        failed = True
+
+    if failed:
+        sys.exit(1)
+
+    print("✅ PASS: performance thresholds met")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
+
+
+"""How to run
+python load/check_perf_locust.py --csv-prefix load/locust_results --p95-ms 250 --max-fail-rate 0.01
+
+After locustfile.py
+
+"""
+# 

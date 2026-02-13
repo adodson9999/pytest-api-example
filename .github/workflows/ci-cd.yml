@@ -136,10 +136,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-ui-
 
-    # 🚫 NOTE: We intentionally DO NOT cache ~/.cache/ms-playwright
-    # until the pipeline is stable, because a partial cache causes
-    # "Executable doesn't exist" flakiness.
-
     - name: Install dependencies (incl Playwright)
       run: |
         python -m pip install --upgrade pip
@@ -204,7 +200,122 @@ jobs:
 
 
   # --------------------------------------------------
-  # 3️⃣ Lint
+  # 3️⃣ Performance / Load Tests (Locust) + Gate
+  #    ✅ Runs headless Locust against /graphql
+  #    ✅ Enforces p95 + failure rate thresholds
+  #    ✅ Verifies invariants (no race conditions)
+  #    ✅ Includes observability log path wiring
+  # --------------------------------------------------
+  perf_locust:
+    name: Performance Gate (Locust)
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-perf-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-perf-
+
+    - name: Install dependencies (includes Locust)
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Start Flask server in background
+      run: |
+        mkdir -p logs
+        python app.py &
+        echo $! > server.pid
+        sleep 3
+      env:
+        FLASK_ENV: testing
+        GRAPHQL_LOG_PATH: logs/graphql_test.log
+
+    - name: Wait for server to be ready
+      run: |
+        echo "Waiting for server to start..."
+        for i in {1..30}; do
+          if curl -f http://localhost:5001/graphql 2>/dev/null; then
+            echo "Server is ready!"
+            break
+          fi
+          echo "Attempt $i: Server not ready yet..."
+          sleep 2
+        done
+        curl -v http://localhost:5001/graphql || exit 1
+
+    - name: Run Locust load test (GraphQL)
+      run: |
+        mkdir -p load
+        export LOAD_RUN_ID=ci${{ github.run_id }}
+        python -m locust -f load/locustfile.py --headless \
+          -u 25 -r 5 --run-time 30s \
+          --host http://127.0.0.1:5001 \
+          --csv load/locust_results
+      env:
+        LOAD_PET_TYPE: dog
+        LOAD_PET_STATUS: available
+
+    - name: Enforce performance thresholds (p95 + fail rate)
+      run: |
+        python load/check_perf_locust.py \
+          --csv-prefix load/locust_results \
+          --p95-ms 250 \
+          --max-fail-rate 0.01
+
+    - name: Verify invariants (no mutation race conditions)
+      run: |
+        python load/verify_invariants.py \
+          --base-url http://127.0.0.1:5001 \
+          --run-id ci${{ github.run_id }} \
+          --min-pets 1
+
+    - name: Dump performance artifacts on failure
+      if: failure()
+      run: |
+        echo "=== load directory ==="
+        ls -la load || true
+        echo "=== Tail locust_results_stats.csv ==="
+        tail -n 50 load/locust_results_stats.csv || true
+        echo "=== Tail locust_results_failures.csv ==="
+        tail -n 50 load/locust_results_failures.csv || true
+        echo "=== Tail logs/graphql_test.log ==="
+        tail -n 200 logs/graphql_test.log || true
+
+    - name: Stop Flask server
+      if: always()
+      run: |
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
+
+    - name: Upload performance artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: perf-locust-results
+        path: |
+          load/locust_results_stats.csv
+          load/locust_results_failures.csv
+          load/locust_results_exceptions.csv
+          logs/graphql_test.log
+
+
+  # --------------------------------------------------
+  # 4️⃣ Lint
   # --------------------------------------------------
   lint:
     name: Code Quality Checks
@@ -242,7 +353,7 @@ jobs:
 
 
   # --------------------------------------------------
-  # 4️⃣ Security
+  # 5️⃣ Security
   # --------------------------------------------------
   security:
     name: Security Scan
@@ -283,12 +394,12 @@ jobs:
 
 
   # --------------------------------------------------
-  # 5️⃣ Summary
+  # 6️⃣ Summary
   # --------------------------------------------------
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [test, ui, lint, security]
+    needs: [test, ui, perf_locust, lint, security]
     if: always()
 
     steps:
@@ -299,9 +410,11 @@ jobs:
         echo "### ✅ Jobs Completed" >> $GITHUB_STEP_SUMMARY
         echo "- Backend tests (Python matrix 3.10–3.12) ✅" >> $GITHUB_STEP_SUMMARY
         echo "- UI tests (Playwright: Chromium + WebKit, Desktop + Phone) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- Performance gate (Locust: p95 + invariants) ✅" >> $GITHUB_STEP_SUMMARY
         echo "- Lint checks ✅" >> $GITHUB_STEP_SUMMARY
         echo "- Security scan ✅" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Artifacts" >> $GITHUB_STEP_SUMMARY
         echo "- Test reports + coverage uploaded (backend job) ✅" >> $GITHUB_STEP_SUMMARY
         echo "- GraphQL observability log uploaded (logs/graphql_test.log) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- Locust CSVs uploaded (perf-locust-results) ✅" >> $GITHUB_STEP_SUMMARY
