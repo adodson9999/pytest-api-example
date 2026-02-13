@@ -20,12 +20,12 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -47,8 +47,17 @@ jobs:
     
     - name: Wait for server to be ready
       run: |
-        timeout 30 bash -c 'until curl -f http://localhost:5001/health 2>/dev/null; do sleep 1; done' || echo "Server may not be ready, continuing anyway"
-        sleep 2
+        echo "Waiting for server to start..."
+        sleep 5
+        for i in {1..30}; do
+          if curl -f http://localhost:5001/health 2>/dev/null; then
+            echo "Server is ready!"
+            break
+          fi
+          echo "Attempt $i: Server not ready yet..."
+          sleep 2
+        done
+        curl -v http://localhost:5001/health || echo "Health check failed but continuing"
     
     - name: Run tests (matching local pytest command)
       run: |
@@ -65,7 +74,7 @@ jobs:
     
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-results-py${{ matrix.python-version }}
         path: |
@@ -75,7 +84,7 @@ jobs:
     
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.11'
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
         flags: unittests
@@ -91,7 +100,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -127,7 +136,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -149,7 +158,7 @@ jobs:
     
     - name: Upload security reports
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-reports
         path: |
