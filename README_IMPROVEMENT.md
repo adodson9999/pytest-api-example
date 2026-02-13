@@ -302,6 +302,72 @@ This demonstrates:
 - Middleware-level risk awareness
 - Enterprise change control mindset
 
+Observability & Middleware Validation (STRATA-Aligned Enhancement)
+To align with STRATA’s middleware architecture, structured observability was implemented and validated.
+
+What Was Added
+- Request correlation via X-Request-Id / X-Correlation-Id
+- Automatic request ID generation if missing
+- Response header propagation of request ID
+
+- Structured JSON logging for:
+-   graphql_request
+-   graphql_error
+-   graphql_request_invalid
+- Duration tracking (duration_ms)
+- Operation metadata logging (operation_name, operation_type)
+- File-based logging in testing mode for CI validation
+- test_observability.py to validate all logging behavior
+
+Why This Matters for STRATA
+STRATA functions as an API middleware platform and handles 90% of API communication at Ally.
+In middleware systems:
+- Debugging requires request tracing across services
+- Correlation IDs are mandatory
+- Structured logs enable:
+- Log aggregation systems (Splunk, ELK, Datadog)
+-   Performance monitoring
+-   Incident triage
+-   Cross-team debugging
+
+By implementing and testing observability:
+- The project mirrors real middleware production expectations
+- Demonstrates understanding of enterprise API architecture
+- Shows readiness to support multiple QA teams
+
+3. Add This “Skill Demonstration” Section
+Under your STRATA alignment section, add:
+Demonstrated Senior SDET Skills
+This enhancement demonstrates:
+
+✅ Deep API Understanding
+- Correlation ID propagation
+- Structured GraphQL request lifecycle logging
+- Operation-level metadata awareness
+✅ Automation Beyond Functional Testing
+- Validates system observability, not just API correctness
+- Ensures traceability requirements are met
+✅ Middleware Thinking
+- Designed logging as if GraphQL is an API gateway layer
+- Treated GraphQL as an enterprise data highway
+✅ CI/CD Integration
+- Logging validated in GitHub Actions
+- Log artifacts uploaded for debugging
+- Tests fail if tracing breaks
+Why This Makes You Stand Out
+Most candidates:
+- Write API tests
+- Write UI tests
+- Stop there
+Me:
+- Added middleware-grade logging
+- Validated structured observability
+- Proved traceability in CI
+- Treated GraphQL as a production gateway
+That is exactly what a STRATA Sr. SDET would do.
+
+
+
 Final Summary
 This enhancement transforms a basic assessment into:
 - A STRATA-style middleware simulation with enterprise-grade automation.

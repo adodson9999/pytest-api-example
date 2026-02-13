@@ -10,6 +10,7 @@ jobs:
   # --------------------------------------------------
   # 1️⃣ Backend + Unit/Integration Tests (Python Matrix)
   #    ✅ IMPORTANT: Excludes Playwright UI tests
+  #    ✅ Includes observability log path wiring
   # --------------------------------------------------
   test:
     name: Run Tests
@@ -43,11 +44,13 @@ jobs:
 
     - name: Start Flask server in background
       run: |
+        mkdir -p logs
         python app.py &
         echo $! > server.pid
         sleep 3
       env:
         FLASK_ENV: testing
+        GRAPHQL_LOG_PATH: logs/graphql_test.log
 
     - name: Wait for server to be ready
       run: |
@@ -66,7 +69,15 @@ jobs:
     - name: Run backend tests (exclude UI)
       run: |
         pytest -v --ignore=test_ui.py --html=report.html --self-contained-html --cov=. --cov-report=xml --cov-report=html
+      env:
+        GRAPHQL_LOG_PATH: logs/graphql_test.log
       continue-on-error: false
+
+    - name: Dump GraphQL log on failure (backend)
+      if: failure()
+      run: |
+        echo "=== logs/graphql_test.log (backend) ==="
+        cat logs/graphql_test.log || true
 
     - name: Stop Flask server
       if: always()
@@ -85,6 +96,7 @@ jobs:
           report.html
           htmlcov/
           coverage.xml
+          logs/graphql_test.log
 
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.11'
@@ -100,6 +112,7 @@ jobs:
   # 2️⃣ UI Tests (Playwright - Chromium + WebKit)
   #    ✅ Runs ONCE (Python 3.11) and installs browsers
   #    ✅ Includes verify step to fail fast if missing
+  #    ✅ Includes observability log path wiring
   # --------------------------------------------------
   ui:
     name: Run UI Tests (Playwright)
@@ -148,11 +161,13 @@ jobs:
 
     - name: Start Flask server in background
       run: |
+        mkdir -p logs
         python app.py &
         echo $! > server.pid
         sleep 3
       env:
         FLASK_ENV: testing
+        GRAPHQL_LOG_PATH: logs/graphql_test.log
 
     - name: Wait for server to be ready
       run: |
@@ -170,6 +185,14 @@ jobs:
     - name: Run UI tests
       run: |
         pytest -v test_ui.py
+      env:
+        GRAPHQL_LOG_PATH: logs/graphql_test.log
+
+    - name: Dump GraphQL log on failure (ui)
+      if: failure()
+      run: |
+        echo "=== logs/graphql_test.log (ui) ==="
+        cat logs/graphql_test.log || true
 
     - name: Stop Flask server
       if: always()
@@ -281,3 +304,4 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Artifacts" >> $GITHUB_STEP_SUMMARY
         echo "- Test reports + coverage uploaded (backend job) ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- GraphQL observability log uploaded (logs/graphql_test.log) ✅" >> $GITHUB_STEP_SUMMARY
