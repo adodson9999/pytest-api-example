@@ -35,6 +35,7 @@ class Models:
         self.inventory_model = self.api.model('Inventory', {
             'id': fields.Integer(description='Inventory Id'),
             'inventory': fields.Integer(description='Inventory of'),
+            "pet_id": fields.Integer(description='If applicable pet id')
         })
         
         self.vet_model = self.api.model('Vet', {

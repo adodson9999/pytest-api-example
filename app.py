@@ -8,6 +8,8 @@ from flask import request
 from flask_restx import Resource, abort
 import uuid  
 from graphql_api import init_graphql
+from dataclasses import dataclass
+from typing import Callable, Any, Optional
 
 
 app = Flask(__name__)
@@ -81,6 +83,15 @@ class BaseListResource(Resource):
     ID_FIELD = "id"       # default id key
 
 
+@dataclass
+class SharedTarget:
+    items: list[dict]
+    build: Callable[[dict], dict]
+    # Prevent duplicates if you re-post same thing or client supplies same id
+    # Example: dedupe_key=lambda created: ("inven_id", created["id"])
+    dedupe_key: Optional[Callable[[dict], tuple[str, Any]]] = None
+
+
 class BaseGetResource(Resource):
     ITEMS = None
     LABEL = "Item"
@@ -94,23 +105,22 @@ class BaseGetResource(Resource):
 
 
 def _generate_next_id(existing_ids: set[int]) -> int:
-    current = next(i for i in range(1, len(existing_ids) + 2) if i not in existing_ids)
-    
-    return current
+    return next(i for i in range(1, len(existing_ids) + 2) if i not in existing_ids)
 
 
-def register_list_resource(ns, api, *, items, model, label, id_param=None):
+def register_list_resource(ns, api, *, items, model, label, id_param=None, shared: list[SharedTarget] | None = None):
     """
     Registers:
       GET   /
       POST  /
       GET   /<int:id>
 
-    Server generates sequential id when missing from POST body.
+    Optional:
+      shared: list of SharedTarget() to also write to other resource lists on POST.
     """
     id_param = id_param or f"{label.lower()}_id"
+    shared = shared or []
 
-    # ---- LIST + CREATE ----
     @ns.route('/')
     class _ListResource(BaseListResource):
         ITEMS = items
@@ -119,17 +129,14 @@ def register_list_resource(ns, api, *, items, model, label, id_param=None):
         @ns.doc(f'list_{label.lower()}s')
         @ns.marshal_list_with(model)
         def get(self):
-            """List all items"""
             return self.ITEMS
 
         @ns.doc(f'create_{label.lower()}')
-        @ns.expect(model)  # ok if client omits id (unless you enabled strict validation)
+        @ns.expect(model)
         @ns.marshal_with(model, code=201)
         def post(self):
-            """Create a new item (server assigns first available sequential id)"""
             payload = api.payload or {}
 
-            # Collect existing integer IDs (ignore missing/None)
             existing_ids = {
                 x.get(self.ID_FIELD)
                 for x in self.ITEMS
@@ -139,19 +146,30 @@ def register_list_resource(ns, api, *, items, model, label, id_param=None):
             incoming_id = payload.get(self.ID_FIELD)
 
             if incoming_id is None:
-                # ✅ server assigns sequential id
                 payload[self.ID_FIELD] = _generate_next_id(existing_ids)
             else:
-                # Optional: allow client-supplied id but validate it
                 if not isinstance(incoming_id, int):
                     api.abort(400, f"{self.LABEL} '{self.ID_FIELD}' must be an integer")
                 if incoming_id in existing_ids:
                     api.abort(409, f"{self.LABEL} with ID {incoming_id} already exists")
 
+            # Create the primary object
             self.ITEMS.append(payload)
+
+            # ✅ Shared writes (e.g., also create inventory record)
+            for target in shared:
+                shared_obj = target.build(payload)
+
+                if target.dedupe_key:
+                    key_field, key_value = target.dedupe_key(payload)
+                    if any(x.get(key_field) == key_value for x in target.items):
+                        # already exists -> skip (or api.abort(409) if you prefer)
+                        continue
+
+                target.items.append(shared_obj)
+
             return payload, 201
 
-    # ---- GET BY ID ----
     @ns.route(f'/<int:{id_param}>')
     @ns.response(404, f'{label} not found')
     @ns.param(id_param, f'The {label.lower()} identifier')
@@ -162,9 +180,9 @@ def register_list_resource(ns, api, *, items, model, label, id_param=None):
         @ns.doc(f'get_{label.lower()}')
         @ns.marshal_with(model)
         def get(self, **kwargs):
-            """Fetch item by id"""
             item_id = kwargs[id_param]
             return self.get_one(item_id)
+
 
 
 
@@ -176,8 +194,21 @@ register_list_resource(
     items=pets,
     model=models.pet_model,
     label="Pet",
-    id_param="pet_id"
+    id_param="pet_id",
+    shared=[
+        SharedTarget(
+            items=inventory,
+            build=lambda pet: {
+                # choose your inventory schema
+                "id": pet["id"],          # inventory row id (same as pet id)
+                "pet_id": pet["id"],    # what orders reference
+                "inventory": 1            # quantity/stock
+            },
+            dedupe_key=lambda pet: ("inven_id", pet["id"]),
+        )
+    ],
 )
+
 
 # Customers
 register_list_resource(
@@ -423,7 +454,7 @@ def health_check():
     }), 200
 
 
-init_graphql(app, pets, orders)
+init_graphql(app, pets, orders, events, inventory, vendors, trainers, customers, vets)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
