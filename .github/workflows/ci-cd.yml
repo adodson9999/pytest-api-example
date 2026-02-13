@@ -118,24 +118,24 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-ui-
 
-    - name: Cache Playwright browsers
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-playwright-
-
-    - name: Install Playwright (Python deps)
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install playwright pytest-playwright
 
-    - name: Install Playwright browsers
+    - name: Install Playwright browsers (Chromium + WebKit)
       run: |
         python -m playwright install --with-deps chromium webkit
     
+    - name: Verify Playwright browsers are installed
+      run: |
+        python - <<'PY'
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+          print("chromium:", p.chromium.executable_path)
+          print("webkit:", p.webkit.executable_path)
+        PY
     - name: Start Flask server in background
       run: |
         python app.py &
