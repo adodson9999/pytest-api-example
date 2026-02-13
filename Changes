@@ -1,9 +1,0 @@
-Changes: 
-
-
-File: 
-
-api_helpers.py: 
-- request to httpx because of speed and effect
-- Add three retries 
-- Error messages

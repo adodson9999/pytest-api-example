@@ -1,6 +1,5 @@
 from jsonschema import validate
 import pytest
-import schemas
 import api_helpers
 from hamcrest import assert_that, contains_string, is_
 import uuid

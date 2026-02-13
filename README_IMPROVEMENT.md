@@ -286,6 +286,22 @@ Demonstrated Senior-Level Capabilities
 - Scalable test parametrization
 - Browser automation integration
 
+
+### GraphQL Contract Governance
+
+The GraphQL schema is treated as a first-class contract.
+
+A schema snapshot is stored in `graphql_contract/schema.graphql`.
+CI validates that the running schema matches this snapshot.
+
+This prevents unintended breaking changes and mirrors how middleware
+platforms like STRATA must protect downstream consumers.
+
+This demonstrates:
+- API contract discipline
+- Middleware-level risk awareness
+- Enterprise change control mindset
+
 Final Summary
 This enhancement transforms a basic assessment into:
 - A STRATA-style middleware simulation with enterprise-grade automation.

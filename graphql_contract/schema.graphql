@@ -1,0 +1,108 @@
+type Pet {
+  id: Int!
+  name: String!
+  type: String!
+  status: String
+  order_id: Int
+}
+
+type Order {
+  id: Int!
+  inven_id: Int!
+  amount_purchase: Int!
+  status: String
+}
+
+type Customer {
+  id: Int!
+  name: String!
+  date: String!
+  purchase: Int!
+  email: String!
+}
+
+type Inventory {
+  id: Int!
+  inventory: Int
+  pet_id: Int
+}
+
+type Vet {
+  id: Int!
+  name: String!
+  contact_form: String!
+  contact_info: Int!
+}
+
+type Trainer {
+  id: Int!
+  name: String!
+  contact_form: String!
+  contact_info: Int!
+}
+
+type Vendor {
+  id: Int!
+  name: String!
+  contact_form: String!
+  contact_info: String!
+  point_of_contact: String!
+  product: Int!
+}
+
+type Event {
+  id: Int!
+  name: String!
+  date: String!
+  location: Int!
+}
+
+type DeleteResult {
+  success: Boolean!
+}
+
+type Query {
+  pet(id: Int!): Pet
+  pets(status: String, type: String): [Pet!]!
+  order(id: Int!): Order
+  orders(status: String): [Order!]!
+  customer(id: Int!): Customer
+  customers: [Customer!]!
+  inventoryItem(id: Int!): Inventory
+  inventory(pet_id: Int): [Inventory!]!
+  vet(id: Int!): Vet
+  vets: [Vet!]!
+  trainer(id: Int!): Trainer
+  trainers: [Trainer!]!
+  vendor(id: Int!): Vendor
+  vendors: [Vendor!]!
+  event(id: Int!): Event
+  events: [Event!]!
+}
+
+type Mutation {
+  createPet(name: String!, type: String!, status: String): Pet!
+  updatePet(id: Int!, name: String, type: String, status: String, order_id: Int): Pet
+  deletePet(id: Int!): DeleteResult!
+  createOrder(inven_id: Int!, amount_purchase: Int!, status: String): Order!
+  updateOrder(id: Int!, status: String): Order
+  deleteOrder(id: Int!): DeleteResult!
+  createCustomer(name: String!, date: String!, purchase: Int!, email: String!): Customer!
+  updateCustomer(id: Int!, name: String, date: String, purchase: Int, email: String): Customer
+  deleteCustomer(id: Int!): DeleteResult!
+  createInventory(inventory: Int, pet_id: Int): Inventory!
+  updateInventory(id: Int!, inventory: Int, pet_id: Int): Inventory
+  deleteInventory(id: Int!): DeleteResult!
+  createVet(name: String!, contact_form: String!, contact_info: Int!): Vet!
+  updateVet(id: Int!, name: String, contact_form: String, contact_info: Int): Vet
+  deleteVet(id: Int!): DeleteResult!
+  createTrainer(name: String!, contact_form: String!, contact_info: Int!): Trainer!
+  updateTrainer(id: Int!, name: String, contact_form: String, contact_info: Int): Trainer
+  deleteTrainer(id: Int!): DeleteResult!
+  createVendor(name: String!, contact_form: String!, contact_info: String!, point_of_contact: String!, product: Int!): Vendor!
+  updateVendor(id: Int!, name: String, contact_form: String, contact_info: String, point_of_contact: String, product: Int): Vendor
+  deleteVendor(id: Int!): DeleteResult!
+  createEvent(name: String!, date: String!, location: Int!): Event!
+  updateEvent(id: Int!, name: String, date: String, location: Int): Event
+  deleteEvent(id: Int!): DeleteResult!
+}
