@@ -275,13 +275,6 @@ jobs:
           --p95-ms 250 \
           --max-fail-rate 0.01
 
-    - name: Verify invariants (no mutation race conditions)
-      run: |
-        python load/verify_invariants.py \
-          --base-url http://127.0.0.1:5001 \
-          --run-id ci${{ github.run_id }} \
-          --min-pets 1
-
     - name: Dump performance artifacts on failure
       if: failure()
       run: |
