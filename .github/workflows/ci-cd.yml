@@ -50,9 +50,9 @@ jobs:
         timeout 30 bash -c 'until curl -f http://localhost:5001/health 2>/dev/null; do sleep 1; done' || echo "Server may not be ready, continuing anyway"
         sleep 2
     
-    - name: Run tests with coverage
+    - name: Run tests (matching local pytest command)
       run: |
-        pytest -v --cov=. --cov-report=xml --cov-report=html --html=report.html --self-contained-html
+        pytest -v --html=report.html --self-contained-html --cov=. --cov-report=xml --cov-report=html
       continue-on-error: false
     
     - name: Stop Flask server
