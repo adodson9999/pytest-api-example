@@ -551,19 +551,21 @@ python app.py
 ### Run Tests
 ```bash
 # All tests
-pytest -v
+pytest -v --html=report.html 
 
 # API tests only
-pytest test_*.py -v
+pytest test_store.py -v
 
 # UI tests only
-pytest test_ui_*.py -v
+pytest test_ui.py -v
 
 # Performance tests
 pytest -m performance -v
 
 # Chaos tests
 pytest -m chaos -v
+
+
 ```
 
 ### View GraphQL Playground
@@ -577,18 +579,33 @@ http://localhost:5001/graphql
 
 ```
 .
-├── app.py                      # Main Flask application with GraphQL
-├── api_clients.py              # API client wrappers
-├── graphql_api.py             # GraphQL schema and resolvers
-├── test_*.py                  # Test suites
-├── test_ui_*.py               # Playwright UI tests
-├── load/                      # Performance testing
-│   ├── locustfile.py         # Load test scenarios
-│   └── check_perf_locust.py  # Performance gates
-├── graphql_contract/          # Schema governance
-│   └── schema.graphql        # Contract snapshot
-├── .github/workflows/         # CI/CD pipelines
-└── requirements.txt           # Dependencies
+├── app.py                        # Main Flask application (entry point, registers GraphQL endpoint)
+├── graphql_api.py                # GraphQL database and gui
+├── api_helpers.py                # HTTP client wrappers 
+├── test_regristration.py         # Orginaially was test_pet throught it made more sense to be more general
+├── test_chaos.py                  # Chaos testing to validate system resilience 
+├── test_graphql.py               # Test graphql database that was created
+├── test_ui.py                    # Playwright UI tests for the GraphQL Playground (/graphql)
+├── test_observability.py         # Validates structured logging, request tracing, and observability on GraphQL middleware layer
+├── test_store.py                 # Test orders
+├── load/                         # Performance / load testing folder
+│   ├── locustfile.py             # Locust scenarios 
+    ├── check_perf_locust.py      # latency + reliability expectations
+├── data/                         # JSON fixtures used by tests / seeding / validation
+│   ├── pet.json                  # Orginial pet data
+│   ├── events.json               # Orginial event data 
+│   ├── inventory.json            # Orginial inventory data
+│   ├── vendors.json              # Orginial vendors data
+│   ├── trainers.json             # Orginial trainers data
+│   ├── customers.json            # Orginial customers data
+│   └── vet.json                  # Orginial vet data
+├── scripts/                      # Utility / maintenance scripts
+│   └── export_graphql_schema.py  # Exports current GraphQL schema 
+├── requirements.txt              # Python dependencies 
+├── .github/                      # GitHub Actions CI/CD
+│   └── workflows/
+│       └── ci.yml                # Runs pytest + UI tests + maybe performance gates (very likely given your CI screenshot)
+└── README.md                     # Orginial provided readme
 ```
 
 ---
