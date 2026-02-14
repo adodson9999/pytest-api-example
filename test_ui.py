@@ -51,11 +51,44 @@ EXTRA_CASES: List[Case] = [
 
 def build_cases() -> List[Tuple[str, str, str]]:
     """
-    Returns tuples: (browser_type, form_factor, case_key)
+    Purpose:  Creates the full test matrix — which browser × which viewport size × which test case
+              should be executed.
 
-    CORE: 10 cases * (2 browsers * 2 form factors) = 40
-    EXTRA: 10 cases * (chromium * desktop) = 10
-    TOTAL = 50
+    Why:      We want 50 well-distributed UI checks without exploding runtime.
+              Core cases run everywhere (cross-browser + responsive), extra cases only
+              on the most common / most style-sensitive combination (chromium desktop).
+
+    Questions & Answers:
+
+    1. Why not use pytest_generate_tests or a fixture?  
+       → We want very explicit control and clear Cartesian product visibility.
+
+    2. Why assert len(cases) == 50?  
+       → Safety check — catches if someone accidentally changes number of cases.
+
+    3. Can I easily add mobile-specific extra cases later?  
+       → Yes — just add condition inside the second loop.
+
+    4. Why not run extra cases on webkit too?  
+       → Runtime — webkit is slower and extra cases are mostly style/polish checks.
+
+    5. What happens if I add a new browser e.g. firefox?  
+       → Only core cases will run for it (unless you update the loop).
+
+    6. Is the order of cases deterministic?  
+       → Yes — browsers → form factors → core cases → extra cases.
+
+    7. Why separate CORE_CASES and EXTRA_CASES lists?  
+       → Easier to maintain different execution scopes and priorities.
+
+    8. Can I mark some cases xfail/xpass?  
+       → Yes — but better to do it inside the test body with pytest.mark.xfail.
+
+    9. Why not use @pytest.mark.parametrize directly on the function?  
+       → Because we build the list dynamically and want to see the total count.
+
+    10. What is the easiest way to run only extra cases?  
+        → Temporarily comment out the core loop or filter CASES list.
     """
     cases: List[Tuple[str, str, str]] = []
     for browser_type in BROWSERS:
@@ -75,8 +108,43 @@ CASES = build_cases()
 
 def make_page(playwright: Playwright, browser_type: str, form_factor: str):
     """
-    We intentionally launch browsers ourselves (chromium/webkit) instead of relying on
-    pytest-playwright's browser fixtures to avoid duplicate parametrization issues.
+    Purpose:  Launches browser + creates context + page with correct device emulation
+
+    Why:      We manually control browser launch (instead of pytest-playwright fixtures)
+              to avoid complex parametrization conflicts and have full control over
+              device profiles vs desktop viewports.
+
+    Questions & Answers:
+
+    1. Why not use pytest-playwright's browser / context fixtures?  
+       → They make multi-browser + device parametrization very awkward.
+
+    2. Why iPhone 13 specifically?  
+       → Popular modern device with known dimensions; good enough proxy for phones.
+
+    3. Should I also test iPad or Galaxy?  
+       → Possible — but increases runtime a lot; usually not needed for basic layout.
+
+    4. Why viewport 1280×800 for desktop?  
+       → Common laptop resolution that shows most layout issues without being huge.
+
+    5. What happens if playwright.devices doesn't have "iPhone 13"?  
+       → Test fails early — very visible signal that environment is broken.
+
+    6. Is it ok that we don't set user-agent explicitly?  
+       → Usually yes — device profile already sets reasonable UA.
+
+    7. Why return tuple (browser, context, page)?  
+       → So caller can close everything properly in finally block.
+
+    8. Could we reuse contexts across tests?  
+       → Risky — state leakage between tests is common cause of flakiness.
+
+    9. Why launch() and not launch_persistent_context()?  
+       → We don't need persistent storage for UI playground tests.
+
+    10. Can I add headless=False for debugging?  
+        → Yes — temporarily add headless=False, slow_mo=300 when needed.
     """
     browser_launcher = getattr(playwright, browser_type)
 
@@ -94,33 +162,215 @@ def make_page(playwright: Playwright, browser_type: str, form_factor: str):
 
 
 def set_query(page, gql: str):
+    """
+    Purpose:  Focuses textarea → pastes (fills) GraphQL query/mutation
+
+    Why:      Simulates real user typing → more realistic than evaluate() injection.
+              Also triggers any potential input/change events the app listens to.
+
+    Questions & Answers:
+
+    1. Why click() before fill()?  
+       → Ensures focus is correct; some editors behave differently without focus.
+
+    2. Why not use page.keyboard.insert_text()?  
+       → fill() is simpler and usually faster + handles selection.
+
+    3. What if #query selector disappears?  
+       → Test fails early with good locator error message.
+
+    4. Should we wait for textarea to be visible first?  
+       → Usually not needed — page.goto() + domcontentloaded already waited.
+
+    5. Can fill() trigger too many events?  
+       → In practice almost never an issue for playgrounds.
+
+    6. Why not clear() first?  
+       → fill() replaces content automatically.
+
+    7. Is it ok that we don't wait after fill()?  
+       → Yes — next action (click or shortcut) gives enough time.
+
+    8. Could we use evaluate to set value directly?  
+       → Possible but loses realism and event triggering.
+
+    9. What if textarea is controlled by CodeMirror / Monaco?  
+       → fill() still usually works; worst case → need special helper.
+
+    10. Should we trim the gql string?  
+        → Optional — current code trusts caller to provide clean input.
+    """
     textarea = page.locator("#query")
     textarea.click()
     textarea.fill(gql)
 
 
 def click_execute(page):
+    """
+    Purpose:  Clicks the "Execute Query" button
+
+    Why:      Central action of the playground → reused in many test cases.
+
+    Questions & Answers:
+
+    1. Why use has_text locator instead of id/class?  
+       → More robust against class name changes; text is stable UX contract.
+
+    2. What if button text changes to "Run" ?  
+       → Test fails loudly — good signal to update locator.
+
+    3. Should we wait for button to be enabled?  
+       → In most cases already visible/enabled after page load.
+
+    4. Can button be disabled during loading?  
+       → Current tests don't check that — could be future case.
+
+    5. Why not press Enter instead?  
+       → We have separate Ctrl+Enter test; want explicit button path too.
+
+    6. Is .click() enough or need force=True?  
+       → Normal .click() is fine; force only for overlay/pointer-events issues.
+
+    7. What if multiple "Execute Query" buttons exist?  
+       → Test fails — good, because UI bug.
+
+    8. Should we hover before click?  
+       → Not needed for functional test; only for style test.
+
+    9. Can we combine with wait_for_* functions?  
+       → Yes — caller usually does that right after.
+
+    10. Why no timeout on click()?  
+        → Page should already be stable; timeout would hide real issues.
+    """
     page.locator("button", has_text="Execute Query").click()
 
 
 # ----------------------------
 # ✅ FIXED WAIT HELPERS
 # ----------------------------
+
 def wait_for_response_not_placeholder(page, timeout=8000):
+    """
+    Purpose:  Waits until response area no longer shows initial placeholder text
+
+    Why:      Prevents race where we check JSON too early (still showing placeholder).
+
+    Questions & Answers:
+
+    1. Why 8000 ms timeout?  
+       → Generous for local dev server + network delay.
+
+    2. Why not wait for "Loading..." ?  
+       → Some implementations skip straight to result.
+
+    3. What if placeholder text changes?  
+       → Test fails clearly — forces update of expected string.
+
+    4. Is expect().not_to_have_text() reliable?  
+       → Yes — Playwright normalizes whitespace well.
+
+    5. Should we also check visibility?  
+       → Usually already visible; can add if flakiness appears.
+
+    6. Why not wait_for_load_state()?  
+       → Network events unreliable for SPA-like GraphQL playground.
+
+    7. Can response go back to placeholder?  
+       → Very rare — would indicate bigger app bug.
+
+    8. Is 8 seconds too long?  
+       → For CI it's acceptable; local dev feels instant anyway.
+
+    9. Should we use polling instead?  
+       → expect() already polls internally.
+
+    10. Can we make timeout configurable per test?  
+        → Possible — but usually not necessary.
+    """
     resp = page.locator("#response")
     expect(resp).not_to_have_text('Click "Execute Query" to see results', timeout=timeout)
 
 
 def wait_for_response_not_loading(page, timeout=8000):
+    """
+    Purpose:  Waits until "Loading..." text disappears from response area
+
+    Why:      Some playgrounds show "Loading..." → we want real result before assertions.
+
+    Questions & Answers:
+
+    1. Why separate from not_placeholder?  
+       → Different apps show different intermediate states.
+
+    2. What if app never shows "Loading..." ?  
+       → Wait passes immediately — safe.
+
+    3. Is "Loading..." case-sensitive?  
+       → Yes — but expect normalizes whitespace.
+
+    4. Should we also wait for networkidle?  
+       → Unreliable in GraphQL apps (persistent ws connection).
+
+    5. Can we combine both waits into one function?  
+       → Possible — but separate is clearer for debugging.
+
+    6. Why not wait for JSON directly here?  
+       → See wait_for_response_json() — more strict.
+
+    7. What if loading text is different language?  
+       → Test fails — good if you only support English.
+
+    8. Is 8s enough for slow introspection?  
+       → Usually yes on localhost.
+
+    9. Should we check that #response is still visible?  
+       → Redundant — already checked earlier.
+
+    10. Can we make message configurable?  
+        → Yes — but current hardcode matches most playgrounds.
+    """
     resp = page.locator("#response")
     expect(resp).not_to_have_text("Loading...", timeout=timeout)
 
 
 def wait_for_response_json(page, timeout=8000):
     """
-    Wait until #response contains valid JSON.
-    Handles: placeholder -> Loading... -> JSON
-    Uses wait_for_function because Python expect().to_have_text doesn't accept lambdas.
+    Purpose:  Most reliable wait — waits until #response contains **parseable JSON**
+
+    Why:      Safest way to know real result arrived (not placeholder, not loading, not error page).
+
+    Questions & Answers:
+
+    1. Why JavaScript evaluation instead of Python parsing?  
+       → Much faster feedback loop; avoids many roundtrips.
+
+    2. Why check startsWith('{') or '[' ?  
+       → Quick pre-filter before expensive JSON.parse().
+
+    3. What if response is empty string?  
+       → Wait continues — correctly fails.
+
+    4. Why not use expect().to_contain_text('{') ?  
+       → Too weak — could match incomplete/invalid JSON.
+
+    5. Is try/catch in JS expensive?  
+       → Negligible — runs in browser.
+
+    6. What if server returns HTML error page?  
+       → Wait fails → good, we catch non-JSON.
+
+    7. Can response be valid JSON but not GraphQL shape?  
+       → Yes — that's ok here; shape checked later.
+
+    8. Why first check not placeholder then JSON?  
+       → Avoids parsing placeholder text.
+
+    9. Should we also wait for no "errors"?  
+       → No — some tests want to see errors.
+
+    10. Can timeout be lower in CI?  
+        → Possible — but 8s is usually safe.
     """
     # wait until it is not the initial placeholder
     resp = page.locator("#response")
@@ -142,6 +392,44 @@ def wait_for_response_json(page, timeout=8000):
 
 
 def parse_response_json(page) -> dict:
+    """
+    Purpose:  Extracts text from #response and parses it as JSON
+
+    Why:      Central place to get structured response data for assertions.
+              Raises good error with actual text when parsing fails.
+
+    Questions & Answers:
+
+    1. Why strip() the text?  
+       → Prevents whitespace-only parsing errors.
+
+    2. Why raise AssertionError instead of return None?  
+       → Fail-fast with good message — better for debugging.
+
+    3. What if response contains trailing commas?  
+       → json.loads fails → test fails correctly.
+
+    4. Should we use orjson / ujson for speed?  
+       → Not needed — parsing small responses.
+
+    5. Can response be array (not object)?  
+       → Current code assumes dict → may need update if app returns [].
+
+    6. Why not locator.inner_text() ?  
+       → text_content() gets all text including hidden; safer here.
+
+    7. What if #response has child elements?  
+       → text_content() flattens → usually correct for <pre>.
+
+    8. Should we validate GraphQL response shape here?  
+       → No — keep function dumb; assert in test.
+
+    9. Can we add retry logic?  
+       → Not needed — caller already waited.
+
+    10. Why no type hint for possible list?  
+        → Most playgrounds return dict; can change to Any later.
+    """
     text = (page.locator("#response").text_content() or "").strip()
     try:
         return json.loads(text)
@@ -156,6 +444,8 @@ def test_graphql_playground_ui_50(playwright: Playwright, browser_type: str, for
     - Chrome: chromium
     - Safari: webkit
     - Desktop + Phone emulation
+
+    All logic untouched — only documentation added.
     """
     browser, context, page = make_page(playwright, browser_type, form_factor)
     try:
