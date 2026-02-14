@@ -7549,3 +7549,4 @@
 {"event": "graphql_error", "request_id": "3c6fc8b6-b60a-415e-85b4-d0ae472c1cc3", "operation_name": "anonymous", "operation_type": "query", "duration_ms": 1, "fault_mode": null, "errors": ["Cannot query field 'definitelyNotARealField' on type 'Query'."]}
 {"event": "graphql_request", "request_id": "e62640b5-f91d-4d69-bc3d-63ec213a5d13", "operation_name": "anonymous", "operation_type": "query", "duration_ms": 2, "status": "success", "fault_mode": null}
 {"event": "graphql_request", "request_id": "9a674e00-3459-4779-9d62-bbed046ee17f", "operation_name": "anonymous", "operation_type": "query", "duration_ms": 12, "status": "success", "fault_mode": null}
+{"event": "logger_ready", "testing": true, "log_path": "/Users/alexdodson/Downloads/pytest-api-example/logs/graphql_test.log"}
